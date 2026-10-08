@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #f5eeff;
+    color: #000000;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Neo-brutalist utility shadows and borders matching the screenshot */
+.neo-box {
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  box-shadow: 4px 4px 0px #000000;
+}
+
+.neo-box-sm {
+  border: 2px solid #000000;
+  box-shadow: 2.5px 2.5px 0px #000000;
+}
+
+.neo-btn {
+  border: 2px solid #000000;
+  box-shadow: 3px 3px 0px #000000;
+  transition: all 0.12s ease;
+}
+
+.neo-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #000000;
+}
+
+.neo-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #000000;
+}

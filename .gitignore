@@ -1,0 +1,87 @@
+# ================================
+# Python
+# ================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ================================
+# Datasets
+# ================================
+*.csv
+*.xlsx
+*.xls
+
+# ================================
+# Node / React
+# ================================
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist/
+build/
+frontend/dist/
+
+# Vite
+.vite/
+
+# ================================
+# Environment / Secrets
+# ================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ================================
+# IDE / Editor
+# ================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ================================
+# OS files
+# ================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ================================
+# Logs
+# ================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ================================
+# Python / ML temporary files
+# ================================
+*.tmp
+*.temp
+*.bak
+
+# ================================
+# Model checkpoints
+# ================================
+# Keep the deployment checkpoint in GitHub
+# fake_news_lstm_checkpoint.pth
+
+# Ignore other training checkpoints
+*.ckpt
