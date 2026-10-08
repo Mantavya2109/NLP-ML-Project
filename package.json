@@ -2,8 +2,13 @@
   "name": "fake-news-nlp",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "frontend"
+  ],
   "scripts": {
-    "build": "npm --prefix frontend run build",
+    "install-frontend": "npm --prefix frontend install",
+    "postinstall": "npm --prefix frontend install",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
     "dev": "npm --prefix frontend run dev"
   }
 }
