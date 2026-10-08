@@ -8,7 +8,16 @@ export interface HealthResponse {
   model: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Configurable API base URL:
+// - If VITE_API_URL is set, use it (stripped of trailing slash).
+// - If not set: in local dev, default to 'http://localhost:5000'.
+// - In Vercel production: default to '' (same-origin relative calls to /api/*).
+const rawEnvUrl = import.meta.env.VITE_API_URL;
+const isDev = import.meta.env.DEV;
+
+export const API_BASE_URL: string = rawEnvUrl
+  ? rawEnvUrl.replace(/\/+$/, '')
+  : (isDev ? 'http://localhost:5000' : '');
 
 export class ApiError extends Error {
   statusCode?: number;
@@ -21,32 +30,45 @@ export class ApiError extends Error {
 }
 
 /**
- * Checks if the backend Flask API is active and reachable.
+ * Checks if the backend API is active and reachable.
  */
 export async function checkBackendHealth(): Promise<HealthResponse> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+  // Try /api/ first, fallback to /
+  const endpoints = [
+    `${API_BASE_URL}/api/`,
+    `${API_BASE_URL}/api`,
+    `${API_BASE_URL}/`,
+  ];
 
-    if (!response.ok) {
-      throw new ApiError(`Backend returned status ${response.status}`, response.status);
-    }
+  let lastError: any = null;
 
-    return await response.json();
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (err) {
+      lastError = err;
     }
-    throw new ApiError('Backend server is currently offline or unreachable at ' + API_BASE_URL);
   }
+
+  if (lastError instanceof ApiError) {
+    throw lastError;
+  }
+  throw new ApiError(
+    'Backend API is currently offline or unreachable. Please verify server status.'
+  );
 }
 
 /**
- * Sends news text to the backend BiLSTM NLP model for classification.
+ * Sends news text to the BiLSTM NLP model for classification.
  */
 export async function predictNews(text: string): Promise<PredictionResponse> {
   const trimmed = text.trim();
@@ -54,8 +76,15 @@ export async function predictNews(text: string): Promise<PredictionResponse> {
     throw new ApiError('Please enter some news text or an article statement to analyze.');
   }
 
+  // Primary endpoint: /api/predict (Vercel standard), fallback: /predict
+  const primaryEndpoint = `${API_BASE_URL}/api/predict`;
+  const fallbackEndpoint = `${API_BASE_URL}/predict`;
+
+  let response: Response | null = null;
+  let data: any = null;
+
   try {
-    const response = await fetch(`${API_BASE_URL}/predict`, {
+    response = await fetch(primaryEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -64,27 +93,35 @@ export async function predictNews(text: string): Promise<PredictionResponse> {
       body: JSON.stringify({ text: trimmed }),
     });
 
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      const errorMessage = data?.error || `Server responded with error code ${response.status}`;
-      throw new ApiError(errorMessage, response.status);
-    }
-
-    if (!data || typeof data.prediction !== 'string' || typeof data.confidence !== 'number') {
-      throw new ApiError('Received invalid response format from backend server.');
-    }
-
-    return {
-      prediction: data.prediction === 'Real' ? 'Real' : 'Fake',
-      confidence: data.confidence,
-    };
+    data = await response.json().catch(() => null);
   } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
+    // If primary failed on network, attempt fallback
+    try {
+      response = await fetch(fallbackEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ text: trimmed }),
+      });
+      data = await response.json().catch(() => null);
+    } catch {
+      throw new ApiError('Unable to connect to the prediction API server.');
     }
-    throw new ApiError(
-      'Unable to reach backend service. Please make sure the Flask server is running on ' + API_BASE_URL
-    );
   }
+
+  if (!response || !response.ok) {
+    const errorMessage = data?.error || `Server responded with error code ${response?.status || 500}`;
+    throw new ApiError(errorMessage, response?.status);
+  }
+
+  if (!data || typeof data.prediction !== 'string' || typeof data.confidence !== 'number') {
+    throw new ApiError('Received invalid response format from backend server.');
+  }
+
+  return {
+    prediction: data.prediction === 'Real' ? 'Real' : 'Fake',
+    confidence: data.confidence,
+  };
 }

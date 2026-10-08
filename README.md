@@ -1,42 +1,46 @@
 # 📰 Fake News Detector — AI-Powered NLP Web Application
 
-A production-ready Fake News Detection web platform powered by a deep 2-layer Bidirectional Long Short-Term Memory (**BiLSTM**) neural network with PyTorch, Flask REST API, and a React + Vite + TypeScript + Tailwind CSS frontend.
+A production-ready Fake News Detection web platform powered by a deep 2-layer Bidirectional Long Short-Term Memory (**BiLSTM**) neural network in PyTorch, with a serverless Python API and a React + Vite + TypeScript frontend styled in a Neo-Brutalist design.
 
 ---
 
-## 🏗 Project Architecture
+## 🏗 Project Structure
 
 ```text
 Fake News NLP/
+├── api/
+│   ├── index.py                       # Vercel Python Serverless Function entrypoint (Flask)
+│   ├── model.py                       # PyTorch BiLSTM model architecture & Predictor
+│   └── requirements.txt               # Lightweight Python runtime dependencies
 ├── backend/
-│   ├── app.py                     # Flask REST API server with CORS
-│   ├── model.py                   # PyTorch BiLSTM model & Text Preprocessor
-│   └── requirements.txt           # Python dependencies
+│   ├── app.py                         # Standalone local Flask server entrypoint
+│   ├── model.py                       # PyTorch model architecture & Predictor
+│   └── requirements.txt               # Standalone Python dependencies
 ├── frontend/
 │   ├── src/
-│   │   ├── components/            # Modular React components
-│   │   │   ├── Navbar.tsx         # Header with live API connection indicator
-│   │   │   ├── Hero.tsx           # Title & high-level overview
-│   │   │   ├── NewsInput.tsx      # Textarea, word/character counter & samples
-│   │   │   ├── ResultCard.tsx     # Real/Fake classification & confidence meter
-│   │   │   ├── ModelStats.tsx     # Architecture & performance specifications
-│   │   │   └── Disclaimer.tsx     # Disclaimer footer
+│   │   ├── components/
+│   │   │   ├── Navbar.tsx             # Header navigation
+│   │   │   ├── Toolbar.tsx            # 3-view navigation bar (Detector, Real, Fake)
+│   │   │   ├── NewsInput.tsx          # Article textarea workspace
+│   │   │   ├── AnalysisPanel.tsx      # Real-time verdict & confidence panel
+│   │   │   └── SampleNewsView.tsx     # Horizontal sample cards with 1-click copy & test
+│   │   ├── data/
+│   │   │   └── samples.ts             # 5 Real News & 5 Fake News sample articles
 │   │   ├── services/
-│   │   │   └── api.ts             # API client & backend health check
-│   │   ├── App.tsx                # Main application state coordinator
-│   │   ├── main.tsx               # React application entrypoint
-│   │   └── index.css              # Tailwind CSS stylesheet
-│   ├── package.json               # Frontend dependencies & scripts
-│   ├── tsconfig.json              # TypeScript configuration
-│   └── vite.config.ts             # Vite build configuration
+│   │   │   └── api.ts                 # Vercel & local API client with fallbacks
+│   │   ├── App.tsx                    # Main state and layout coordinator
+│   │   ├── main.tsx                   # React entrypoint
+│   │   └── index.css                  # Neo-brutalist Tailwind styling
+│   ├── package.json                   # Frontend dependencies
+│   ├── tsconfig.json                  # TypeScript configuration
+│   └── vite.config.ts                 # Vite build configuration
 ├── ml/
-│   ├── fake_news_lstm_checkpoint.pth  # Complete model deployment checkpoint
+│   ├── fake_news_lstm_checkpoint.pth  # Trained model deployment checkpoint (~17.7 MB)
 │   ├── best_fake_news_lstm.pth        # Best model state dictionary
-│   ├── train.ipynb                    # Training & evaluation Jupyter Notebook
-│   ├── Fake.csv                       # ISOT Fake News Dataset
-│   ├── True.csv                       # ISOT True News Dataset
-│   └── bharatfakenewskosh.csv         # BharatFakeNewsKosh Dataset
-├── .gitignore
+│   └── train.ipynb                    # Training & evaluation Jupyter Notebook
+├── package.json                       # Root monorepo package configuration
+├── vercel.json                        # Vercel deployment configuration
+├── .gitignore                         # Git ignore configuration
 └── README.md
 ```
 
@@ -55,38 +59,77 @@ Fake News NLP/
   - `1` → **Real News**
 - **Test Accuracy:** **84.46%**
 - **Test F1 Score:** **0.8781**
-- **Test Precision:** **0.7890**
-- **Test Recall:** **0.9898**
+- **Deployment Checkpoint:** `ml/fake_news_lstm_checkpoint.pth` (17.7 MB)
 
 ---
 
-## 🚀 Running the Project
+## 🌐 Deploying to Vercel
 
-### 1. Start the Flask Backend
+This repository is pre-configured for one-click deployment to **Vercel** with both the React frontend and Python serverless inference API.
 
-Open a terminal and run:
+### Steps to Deploy:
 
-```bash
-cd backend
-pip install -r requirements.txt
-python app.py
-```
+1. **Push your code to GitHub:**
+   ```bash
+   git add .
+   git commit -m "Deploy Fake News NLP on Vercel"
+   git push origin main
+   ```
 
-The Flask API will start at `http://localhost:5000`.
+2. **Import into Vercel:**
+   - Go to [vercel.com/new](https://vercel.com/new).
+   - Select your GitHub repository.
+   - Vercel automatically detects `vercel.json` and root `package.json`.
 
-#### API Endpoints:
-- `GET /` — Health check & model metadata:
+3. **Project Settings on Vercel:**
+   - **Framework Preset:** `Vite` or `Other`
+   - **Build Command:** `npm run build` (or `cd frontend && npm install && npm run build`)
+   - **Output Directory:** `frontend/dist`
+   - **Root Directory:** `./`
+
+4. **Environment Variables (Optional):**
+   - `VITE_API_URL`: Leave empty for unified Vercel deployment (the frontend will use same-origin relative `/api/*` endpoints). If using an external backend URL, set `VITE_API_URL=https://your-backend.com`.
+
+---
+
+## 💻 Local Development
+
+### Option A: Run Full Stack (Frontend + Python API)
+
+1. **Start the Python API:**
+   ```bash
+   cd api
+   pip install -r requirements.txt
+   python index.py
+   ```
+   *API starts at `http://localhost:5000`.*
+
+2. **Start the React Frontend:**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   *Frontend starts at `http://localhost:5173`.*
+
+---
+
+## 🔌 API Endpoints
+
+- **`GET /api`** or **`GET /`** &mdash; Health check and model metadata:
   ```json
   {
     "status": "running",
-    "model": "Fake News BiLSTM"
+    "model": "Fake News BiLSTM",
+    "device": "cuda"
   }
   ```
-- `POST /predict` — Analyze news text:
+
+- **`POST /api/predict`** or **`POST /predict`** &mdash; Classify news text:
   ```json
   // Request
   {
-    "text": "WASHINGTON (Reuters) - The U.S. Senate passed a bipartisan spending bill on Thursday."
+    "text": "WASHINGTON (Reuters) - The U.S. Senate approved funding legislation."
   }
 
   // Response
@@ -95,23 +138,3 @@ The Flask API will start at `http://localhost:5000`.
     "confidence": 92.65
   }
   ```
-
----
-
-### 2. Start the React Frontend
-
-Open a separate terminal and run:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open your browser at `http://localhost:5173` to access the interactive web application.
-
----
-
-## 🛡 Disclaimer
-
-This system is a machine learning prototype for research and educational purposes. Model predictions are probabilistic and should not be treated as definitive fact verification.
