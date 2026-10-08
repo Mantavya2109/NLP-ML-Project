@@ -14,12 +14,13 @@ app = Flask(__name__)
 # Enable CORS for all routes
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Deployment-safe checkpoint resolution
+# Deployment-safe model bundle resolution (loads lightweight model_bundle.pkl first, fallback to .pth)
 POSSIBLE_PATHS = [
+    os.path.abspath(os.path.join(CURRENT_DIR, "..", "ml", "model_bundle.pkl")),
+    os.path.abspath(os.path.join(CURRENT_DIR, "model_bundle.pkl")),
+    os.path.abspath(os.path.join(os.getcwd(), "ml", "model_bundle.pkl")),
     os.path.abspath(os.path.join(CURRENT_DIR, "..", "ml", "fake_news_lstm_checkpoint.pth")),
     os.path.abspath(os.path.join(os.getcwd(), "ml", "fake_news_lstm_checkpoint.pth")),
-    os.path.abspath(os.path.join(CURRENT_DIR, "fake_news_lstm_checkpoint.pth")),
-    os.path.abspath(os.path.join(CURRENT_DIR, "ml", "fake_news_lstm_checkpoint.pth")),
 ]
 
 CHECKPOINT_PATH = None
@@ -28,15 +29,22 @@ for path in POSSIBLE_PATHS:
         CHECKPOINT_PATH = path
         break
 
-if not CHECKPOINT_PATH:
-    print(f"[ERROR] Model checkpoint not found in any expected location: {POSSIBLE_PATHS}", file=sys.stderr)
-    predictor = None
-else:
-    print(f"[INFO] Initializing Predictor with checkpoint: {CHECKPOINT_PATH}")
-    predictor = Predictor(CHECKPOINT_PATH)
+_predictor_instance = None
 
 
-@app.route("/", methods=["GET"])
+def get_predictor():
+    """
+    Lazy-loads predictor singleton to optimize cold-starts and memory.
+    """
+    global _predictor_instance
+    if _predictor_instance is None:
+        if not CHECKPOINT_PATH:
+            raise FileNotFoundError(f"Model package not found in any expected paths: {POSSIBLE_PATHS}")
+        print(f"[INFO] Initializing Predictor with model file: {CHECKPOINT_PATH}")
+        _predictor_instance = Predictor(CHECKPOINT_PATH)
+    return _predictor_instance
+
+
 @app.route("/api", methods=["GET"])
 @app.route("/api/", methods=["GET"])
 def health_check():
@@ -46,12 +54,12 @@ def health_check():
     return jsonify({
         "status": "running",
         "model": "Fake News BiLSTM",
-        "device": str(predictor.device) if predictor else "unavailable"
+        "checkpoint_located": CHECKPOINT_PATH is not None
     }), 200
 
 
-@app.route("/predict", methods=["POST"])
 @app.route("/api/predict", methods=["POST"])
+@app.route("/predict", methods=["POST"])
 def predict_news():
     """
     Predicts whether a given news article text is Fake or Real.
@@ -60,9 +68,6 @@ def predict_news():
     Returns JSON:
         {"prediction": "Fake" | "Real", "confidence": 87.42}
     """
-    if predictor is None:
-        return jsonify({"error": "Model checkpoint is not loaded on server."}), 500
-
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 400
 
@@ -75,6 +80,7 @@ def predict_news():
         return jsonify({"error": "Please provide non-empty text to analyze."}), 400
 
     try:
+        predictor = get_predictor()
         result = predictor.predict(text)
         return jsonify(result), 200
     except Exception as e:

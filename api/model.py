@@ -1,97 +1,147 @@
 import os
 import re
-import torch
-import torch.nn as nn
+import pickle
+import numpy as np
 
 
-class FakeNewsLSTM(nn.Module):
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -50.0, 50.0)))
+
+
+class BiLSTMInference:
     """
-    2-Layer Bidirectional LSTM model for Fake News Detection.
-    Matches exact architecture used during training.
+    Exact 2-layer Bidirectional LSTM forward engine in pure NumPy.
+    Executes the exact mathematical operations of the trained PyTorch FakeNewsLSTM model:
+    - Embedding lookup
+    - 2-layer Bidirectional LSTM cells (forward & backward)
+    - Concatenation of final forward and backward hidden states
+    - Fully Connected classification layer
+    - Sigmoid probability activation
     """
-    def __init__(
-        self,
-        vocab_size: int = 30000,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
-        num_layers: int = 2,
-        dropout: float = 0.3
-    ):
-        super(FakeNewsLSTM, self).__init__()
+    def __init__(self, weights: dict):
+        self.emb_w = weights["embedding.weight"]  # [30000, 128]
 
-        self.embedding = nn.Embedding(
-            num_embeddings=vocab_size,
-            embedding_dim=embedding_dim,
-            padding_idx=0
-        )
+        # Layer 0 weights & biases
+        self.w_ih_l0 = weights["lstm.weight_ih_l0"]  # [512, 128]
+        self.w_hh_l0 = weights["lstm.weight_hh_l0"]  # [512, 128]
+        self.b_ih_l0 = weights["lstm.bias_ih_l0"]    # [512]
+        self.b_hh_l0 = weights["lstm.bias_hh_l0"]    # [512]
+        self.b_l0 = self.b_ih_l0 + self.b_hh_l0
 
-        self.lstm = nn.LSTM(
-            input_size=embedding_dim,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=dropout if num_layers > 1 else 0.0
-        )
+        self.w_ih_l0_r = weights["lstm.weight_ih_l0_reverse"]  # [512, 128]
+        self.w_hh_l0_r = weights["lstm.weight_hh_l0_reverse"]  # [512, 128]
+        self.b_ih_l0_r = weights["lstm.bias_ih_l0_reverse"]    # [512]
+        self.b_hh_l0_r = weights["lstm.bias_hh_l0_reverse"]    # [512]
+        self.b_l0_r = self.b_ih_l0_r + self.b_hh_l0_r
 
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden_dim * 2, 1)
+        # Layer 1 weights & biases
+        self.w_ih_l1 = weights["lstm.weight_ih_l1"]  # [512, 256]
+        self.w_hh_l1 = weights["lstm.weight_hh_l1"]  # [512, 128]
+        self.b_ih_l1 = weights["lstm.bias_ih_l1"]    # [512]
+        self.b_hh_l1 = weights["lstm.bias_hh_l1"]    # [512]
+        self.b_l1 = self.b_ih_l1 + self.b_hh_l1
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x shape: [batch_size, sequence_length]
-        embedded = self.embedding(x)
-        # embedded shape: [batch_size, sequence_length, embedding_dim]
+        self.w_ih_l1_r = weights["lstm.weight_ih_l1_reverse"]  # [512, 256]
+        self.w_hh_l1_r = weights["lstm.weight_hh_l1_reverse"]  # [512, 128]
+        self.b_ih_l1_r = weights["lstm.bias_ih_l1_reverse"]    # [512]
+        self.b_hh_l1_r = weights["lstm.bias_hh_l1_reverse"]    # [512]
+        self.b_l1_r = self.b_ih_l1_r + self.b_hh_l1_r
 
-        output, (hidden, cell) = self.lstm(embedded)
+        # Linear classification head
+        self.fc_w = weights["fc.weight"]  # [1, 256]
+        self.fc_b = weights["fc.bias"]    # [1]
 
-        # Last hidden state from both directions (forward and backward)
-        forward_hidden = hidden[-2]
-        backward_hidden = hidden[-1]
+    @staticmethod
+    def _step(x_t, h_prev, c_prev, w_ih, w_hh, b):
+        gates = np.dot(w_ih, x_t) + np.dot(w_hh, h_prev) + b
+        i_gate = sigmoid(gates[0:128])
+        f_gate = sigmoid(gates[128:256])
+        g_gate = np.tanh(gates[256:384])
+        o_gate = sigmoid(gates[384:512])
+        c_t = f_gate * c_prev + i_gate * g_gate
+        h_t = o_gate * np.tanh(c_t)
+        return h_t, c_t
 
-        hidden_combined = torch.cat((forward_hidden, backward_hidden), dim=1)
-        hidden_combined = self.dropout(hidden_combined)
+    def forward(self, sequence: list) -> float:
+        """
+        Runs full forward pass for a sequence of 1000 token IDs.
+        Returns prediction probability in [0, 1].
+        """
+        seq_len = len(sequence)
+        # Embedding lookup: [seq_len, 128]
+        emb = self.emb_w[sequence]
 
-        out = self.fc(hidden_combined)
-        return out.squeeze(1)
+        # Layer 0 Forward pass
+        h_f0 = np.zeros(128, dtype=np.float32)
+        c_f0 = np.zeros(128, dtype=np.float32)
+        outputs_f0 = [None] * seq_len
+        for t in range(seq_len):
+            h_f0, c_f0 = self._step(emb[t], h_f0, c_f0, self.w_ih_l0, self.w_hh_l0, self.b_l0)
+            outputs_f0[t] = h_f0
+
+        # Layer 0 Backward pass
+        h_b0 = np.zeros(128, dtype=np.float32)
+        c_b0 = np.zeros(128, dtype=np.float32)
+        outputs_b0 = [None] * seq_len
+        for t in reversed(range(seq_len)):
+            h_b0, c_b0 = self._step(emb[t], h_b0, c_b0, self.w_ih_l0_r, self.w_hh_l0_r, self.b_l0_r)
+            outputs_b0[t] = h_b0
+
+        # Layer 0 combined output: [seq_len, 256]
+        layer0_out = [np.concatenate([outputs_f0[t], outputs_b0[t]]) for t in range(seq_len)]
+
+        # Layer 1 Forward pass (accumulate to last step)
+        h_f1 = np.zeros(128, dtype=np.float32)
+        c_f1 = np.zeros(128, dtype=np.float32)
+        for t in range(seq_len):
+            h_f1, c_f1 = self._step(layer0_out[t], h_f1, c_f1, self.w_ih_l1, self.w_hh_l1, self.b_l1)
+
+        # Layer 1 Backward pass (accumulate to first step in reverse)
+        h_b1 = np.zeros(128, dtype=np.float32)
+        c_b1 = np.zeros(128, dtype=np.float32)
+        for t in reversed(range(seq_len)):
+            h_b1, c_b1 = self._step(layer0_out[t], h_b1, c_b1, self.w_ih_l1_r, self.w_hh_l1_r, self.b_l1_r)
+
+        # Final hidden state concatenation: [256]
+        hidden_combined = np.concatenate([h_f1, h_b1])
+
+        # Classification logit
+        logit = np.dot(self.fc_w, hidden_combined) + self.fc_b
+        return float(sigmoid(logit[0]))
 
 
 class Predictor:
     """
-    Handles preprocessing, tokenization, checkpoint loading, and inference.
-    Deployment-safe: loads once and uses CPU/CUDA gracefully.
+    Handles preprocessing, tokenization, model loading, and serverless inference.
+    Loads lightweight model bundle (NumPy-based) to keep Vercel bundle < 25 MB.
     """
-    def __init__(self, checkpoint_path: str):
-        if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint not found at: {checkpoint_path}")
+    def __init__(self, bundle_path: str):
+        if not os.path.exists(bundle_path):
+            raise FileNotFoundError(f"Model package not found at: {bundle_path}")
 
-        print(f"[INFO] Loading checkpoint from: {checkpoint_path}")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"[INFO] Using device for inference: {self.device}")
+        print(f"[INFO] Loading model bundle from: {bundle_path}")
 
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-
-        self.word_to_idx = checkpoint.get("word_to_idx", {})
-        self.max_len = checkpoint.get("max_len", 1000)
-        vocab_size = checkpoint.get("vocab_size", len(self.word_to_idx))
-        embedding_dim = checkpoint.get("embedding_dim", 128)
-        hidden_dim = checkpoint.get("hidden_dim", 128)
-        num_layers = checkpoint.get("num_layers", 2)
-        dropout = checkpoint.get("dropout", 0.3)
+        # If loading from .pkl or .npz bundle
+        if bundle_path.endswith(".pkl"):
+            with open(bundle_path, "rb") as f:
+                bundle = pickle.load(f)
+            weights = bundle["weights"]
+            self.word_to_idx = bundle["word_to_idx"]
+            self.max_len = bundle.get("max_len", 1000)
+        elif bundle_path.endswith(".pth"):
+            import torch
+            checkpoint = torch.load(bundle_path, map_location="cpu")
+            weights = {k: v.numpy() for k, v in checkpoint["model_state_dict"].items()}
+            self.word_to_idx = checkpoint.get("word_to_idx", {})
+            self.max_len = checkpoint.get("max_len", 1000)
+        else:
+            raise ValueError(f"Unsupported model format: {bundle_path}")
 
         self.pad_idx = self.word_to_idx.get("<PAD>", 0)
         self.unk_idx = self.word_to_idx.get("<UNK>", 1)
 
-        self.model = FakeNewsLSTM(
-            vocab_size=vocab_size,
-            embedding_dim=embedding_dim,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            dropout=dropout
-        )
-
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.model.to(self.device)
-        self.model.eval()
+        self.model = BiLSTMInference(weights)
+        self.device = "cpu"
         print("[INFO] Model and vocabulary successfully initialized and ready for inference.")
 
     def clean_text(self, text: str) -> str:
@@ -104,13 +154,9 @@ class Predictor:
         5. Normalize whitespace
         """
         text = str(text).lower()
-        # Remove URLs
         text = re.sub(r"http\S+|www\S+", " ", text)
-        # Remove HTML tags
         text = re.sub(r"<.*?>", " ", text)
-        # Keep letters, numbers, spaces and apostrophes
         text = re.sub(r"[^a-z0-9\s']", " ", text)
-        # Normalize whitespace
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
@@ -148,12 +194,7 @@ class Predictor:
             raise ValueError("Input text cannot be empty.")
 
         sequence = self.text_to_sequence(text)
-        input_tensor = torch.tensor([sequence], dtype=torch.long, device=self.device)
-
-        with torch.no_grad():
-            output = self.model(input_tensor)
-            # Sigmoid activation converts logit to probability in [0, 1]
-            probability = torch.sigmoid(output).item()
+        probability = self.model.forward(sequence)
 
         # Label mapping: 0 = Fake, 1 = Real
         if probability >= 0.5:
