@@ -61,24 +61,6 @@ def health_check():
     }), 200
 
 
-@app.route("/", defaults={"path": ""}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
-def serve_frontend(path):
-    """
-    Serves static frontend assets or index.html for SPA routes.
-    """
-    if path and os.path.exists(os.path.join(FRONTEND_DIST, path)):
-        return send_from_directory(FRONTEND_DIST, path)
-    if os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
-        return send_from_directory(FRONTEND_DIST, "index.html")
-    # Fallback to health check info if frontend hasn't been built
-    return jsonify({
-        "status": "running",
-        "model": "Fake News BiLSTM",
-        "checkpoint_located": CHECKPOINT_PATH is not None
-    }), 200
-
-
 @app.route("/api/predict", methods=["POST"])
 @app.route("/predict", methods=["POST"])
 def predict_news():
