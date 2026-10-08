@@ -45,7 +45,6 @@ def get_predictor():
     return _predictor_instance
 
 
-@app.route("/", methods=["GET"])
 @app.route("/api", methods=["GET"])
 @app.route("/api/", methods=["GET"])
 def health_check():
@@ -59,8 +58,8 @@ def health_check():
     }), 200
 
 
-@app.route("/predict", methods=["POST"])
 @app.route("/api/predict", methods=["POST"])
+@app.route("/predict", methods=["POST"])
 def predict_news():
     """
     Predicts whether a given news article text is Fake or Real.
