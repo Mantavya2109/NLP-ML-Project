@@ -6,11 +6,14 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from model import Predictor
 
-app = Flask(__name__)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIST = os.path.abspath(os.path.join(CURRENT_DIR, "..", "frontend", "dist"))
+
+app = Flask(__name__, static_folder=FRONTEND_DIST if os.path.exists(FRONTEND_DIST) else None)
 # Enable CORS for all routes
 CORS(app, resources={r"/*": {"origins": "*"}})
 
@@ -51,6 +54,24 @@ def health_check():
     """
     Health check endpoint for Vercel / local server.
     """
+    return jsonify({
+        "status": "running",
+        "model": "Fake News BiLSTM",
+        "checkpoint_located": CHECKPOINT_PATH is not None
+    }), 200
+
+
+@app.route("/", defaults={"path": ""}, methods=["GET"])
+@app.route("/<path:path>", methods=["GET"])
+def serve_frontend(path):
+    """
+    Serves static frontend assets or index.html for SPA routes.
+    """
+    if path and os.path.exists(os.path.join(FRONTEND_DIST, path)):
+        return send_from_directory(FRONTEND_DIST, path)
+    if os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
+        return send_from_directory(FRONTEND_DIST, "index.html")
+    # Fallback to health check info if frontend hasn't been built
     return jsonify({
         "status": "running",
         "model": "Fake News BiLSTM",
